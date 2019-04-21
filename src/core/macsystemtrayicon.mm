@@ -28,6 +28,12 @@
 #include <QApplication>
 #include <QAction>
 #include <QIcon>
+#include <QPixmap>
+#include <QPainter>
+#include <QPoint>
+#include <QRect>
+#include <QPolygon>
+#include <QString>
 #include <QtDebug>
 
 #include <AppKit/NSMenu.h>
@@ -159,19 +165,24 @@ class MacSystemTrayIconPrivate {
   NSMenuItem* now_playing_title_;
 
   Q_DISABLE_COPY(MacSystemTrayIconPrivate);
+
 };
 
-MacSystemTrayIcon::MacSystemTrayIcon(QObject* parent)
+SystemTrayIcon::SystemTrayIcon(QObject* parent)
     : SystemTrayIcon(parent),
-      orange_icon_(QPixmap(":/icons/64x64/strawberry.png").scaled(128, 128, Qt::KeepAspectRatio, Qt::SmoothTransformation)),
-      grey_icon_(QPixmap(":icon_large_grey.png").scaled(128, 128, Qt::KeepAspectRatio, Qt::SmoothTransformation)) {
+      icon_(":/icons/48x48/strawberry.png"),
+      normal_icon_(icon_.pixmap(48, QIcon::Normal)),
+      grey_icon_(icon_.pixmap(48, QIcon::Disabled)),
+      playing_icon_(":/pictures/tiny-play.png"),
+      paused_icon_(":/pictures/tiny-pause.png") {
+
   QApplication::setWindowIcon(orange_icon_);
+
 }
 
-MacSystemTrayIcon::~MacSystemTrayIcon() {
-}
+SystemTrayIcon::~SystemTrayIcon() {}
 
-void MacSystemTrayIcon::SetupMenu(QAction* previous, QAction* play, QAction* stop, QAction* stop_after, QAction* next, QAction* mute, QAction* quit) {
+void SystemTrayIcon::SetupMenu(QAction* previous, QAction* play, QAction* stop, QAction* stop_after, QAction* next, QAction* mute, QAction* quit) {
 
   p_.reset(new MacSystemTrayIconPrivate());
   SetupMenuItem(previous);
@@ -186,24 +197,103 @@ void MacSystemTrayIcon::SetupMenu(QAction* previous, QAction* play, QAction* sto
 
 }
 
-void MacSystemTrayIcon::SetupMenuItem(QAction* action) {
+void SystemTrayIcon::SetupMenuItem(QAction* action) {
+
   p_->AddMenuItem(action);
   connect(action, SIGNAL(changed()), SLOT(ActionChanged()));
+
 }
 
-void MacSystemTrayIcon::UpdateIcon() {
+QPixmap SystemTrayIcon::CreateIcon(const QPixmap &icon, const QPixmap &grey_icon) {
+
+  QRect rect(icon.rect());
+
+  // The angle of the line that's used to cover the icon.
+  // Centered on rect.topRight()
+  double angle = double(100 - percentage_) / 100.0 * M_PI_2 + M_PI;
+  double length = sqrt(pow(rect.width(), 2.0) + pow(rect.height(), 2.0));
+
+  QPolygon mask;
+  mask << rect.topRight();
+  mask << rect.topRight() + QPoint(length * sin(angle), -length * cos(angle));
+
+  if (percentage_ > 50) mask << rect.bottomLeft();
+
+  mask << rect.topLeft();
+  mask << rect.topRight();
+
+  QPixmap ret(icon);
+  QPainter p(&ret);
+
+  // Draw the grey bit
+  //p.setClipRegion(mask);
+  //p.drawPixmap(0, 0, grey_icon);
+  //p.setClipping(false);
+
+  // Draw the playing or paused icon in the top-right
+  if (!current_state_icon_.isNull()) {
+    int height = rect.height() / 2;
+    QPixmap scaled(current_state_icon_.scaledToHeight(height, Qt::SmoothTransformation));
+
+    QRect state_rect(rect.width() - scaled.width(), 0, scaled.width(), scaled.height());
+    p.drawPixmap(state_rect, scaled);
+  }
+
+  p.end();
+
+  return ret;
+
+}
+
+void SystemTrayIcon::UpdateIcon() {
+
   QApplication::setWindowIcon(CreateIcon(orange_icon_, grey_icon_));
+
 }
 
-void MacSystemTrayIcon::ActionChanged() {
+void SystemTrayIcon::SetProgress(int percentage) {
+
+  percentage_ = percentage;
+  UpdateIcon();
+
+}
+
+void SystemTrayIcon::ActionChanged() {
+
   QAction* action = qobject_cast<QAction*>(sender());
   p_->ActionChanged(action);
+
 }
 
-void MacSystemTrayIcon::ClearNowPlaying() {
-  p_->ClearNowPlaying();
+void SystemTrayIcon::SetPlaying(bool enable_play_pause) {
+
+  current_state_icon_ = playing_icon_;
+  UpdateIcon();
+
 }
 
-void MacSystemTrayIcon::SetNowPlaying(const Song& song, const QString& image_path) {
+void SystemTrayIcon::SetPaused() {
+
+  current_state_icon_ = paused_icon_;
+  UpdateIcon();
+
+}
+
+void SystemTrayIcon::SetStopped() {
+
+  current_state_icon_ = QPixmap();
+  UpdateIcon();
+
+}
+
+void SystemTrayIcon::SetNowPlaying(const Song& song, const QString& image_path) {
+
   p_->ShowNowPlaying(song.artist(), song.PrettyTitle());
+
+}
+
+void SystemTrayIcon::ClearNowPlaying() {
+
+  p_->ClearNowPlaying();
+
 }

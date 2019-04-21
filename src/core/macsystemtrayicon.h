@@ -29,37 +29,52 @@
 #include <QAction>
 #include <QPixmap>
 
-#include "systemtrayicon.h"
-
 class MacSystemTrayIconPrivate;
 
-class MacSystemTrayIcon : public SystemTrayIcon {
+class SystemTrayIcon : public QObject {
   Q_OBJECT
 
  public:
-  MacSystemTrayIcon(QObject *parent = nullptr);
-  ~MacSystemTrayIcon();
+  SystemTrayIcon(QObject *parent = nullptr);
+  ~SystemTrayIcon();
+
+  bool IsAvailable const { return true; }
 
   void SetupMenu(QAction *previous, QAction *play, QAction *stop, QAction *stop_after, QAction *next, QAction *mute, QAction *quit);
 
   void SetNowPlaying(const Song& song, const QString& image_path);
   void ClearNowPlaying();
 
-private:
+ signals:
+  void ChangeVolume(int delta);
+  void SeekForward();
+  void SeekBackward();
+  void NextTrack();
+  void PreviousTrack();
+  void ShowHide();
+  void PlayPause();
+
+ private:
   void SetupMenuItem(QAction *action);
 
-private slots:
+ private slots:
+  void SetProgress(int percentage);
   void ActionChanged();
 
-protected:
-  // SystemTrayIcon
+ protected:
+  QPixmap CreateIcon(const QPixmap &icon, const QPixmap &grey_icon);
   void UpdateIcon();
 
-private:
+ private:
+  int percentage_;
   QPixmap orange_icon_;
   QPixmap grey_icon_;
+  QPixmap playing_icon_;
+  QPixmap paused_icon_;
+  QPixmap current_state_icon_;
   std::unique_ptr<MacSystemTrayIconPrivate> p_;
-  Q_DISABLE_COPY(MacSystemTrayIcon);
+  Q_DISABLE_COPY(SystemTrayIcon);
+
 };
 
 #endif  // MACSYSTEMTRAYICON_H

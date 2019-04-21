@@ -42,7 +42,11 @@
 
 #include "core/application.h"
 #include "core/logging.h"
-#include "core/systemtrayicon.h"
+#ifdef Q_OS_MACOS
+#  include "core/macsystemtrayicon.h"
+#else
+#  include "core/qtsystemtrayicon.h"
+#endif
 #include "covermanager/currentartloader.h"
 
 const char *OSD::kSettingsGroup = "OSD";
@@ -118,7 +122,7 @@ void OSD::ReshowCurrentSong() {
 void OSD::AlbumArtLoaded(const Song &song, const QString &uri, const QImage &image) {
 
   // Don't change tray icon details if it's a preview
-  if (!preview_mode_ && tray_icon_)
+  if (tray_icon_->IsAvailable() && !preview_mode_)
     tray_icon_->SetNowPlaying(song, uri);
 
   last_song_ = song;
@@ -177,6 +181,8 @@ void OSD::AlbumArtLoaded(const Song &song, const QString &uri, const QImage &ima
   }
 }
 
+void OSD::Playing() {}
+
 void OSD::Paused() {
   if (show_on_pause_) {
     ShowMessage(app_name_, tr("Paused"));
@@ -184,7 +190,8 @@ void OSD::Paused() {
 }
 
 void OSD::Stopped() {
-  if (tray_icon_) tray_icon_->ClearNowPlaying();
+
+  if (tray_icon_->IsAvailable()) tray_icon_->ClearNowPlaying();
   if (ignore_next_stopped_) {
     ignore_next_stopped_ = false;
     return;
@@ -228,7 +235,7 @@ void OSD::ShowMessage(const QString &summary, const QString &message, const QStr
 
 #ifndef Q_OS_MACOS
       case TrayPopup:
-        if (tray_icon_) tray_icon_->ShowPopup(summary, message, timeout_msec_);
+        if (tray_icon_->IsAvailable()) tray_icon_->ShowPopup(summary, message, timeout_msec_);
         break;
 #endif
 

@@ -85,7 +85,11 @@
 #include "core/iconloader.h"
 #include "core/mainwindow.h"
 #include "core/commandlineoptions.h"
-#include "core/systemtrayicon.h"
+#ifdef Q_OS_MACOS
+#  include "core/macsystemtrayicon.h"
+#else
+#  include "core/qtsystemtrayicon.h"
+#endif
 #include "core/application.h"
 #include "core/networkproxyfactory.h"
 #include "core/scangiomodulepath.h"
@@ -248,7 +252,7 @@ int main(int argc, char* argv[]) {
   QNetworkProxyFactory::setApplicationProxyFactory(NetworkProxyFactory::Instance());
 
   // Create the tray icon and OSD
-  std::unique_ptr<SystemTrayIcon> tray_icon(SystemTrayIcon::CreateSystemTrayIcon());
+  std::unique_ptr<SystemTrayIcon> tray_icon(new SystemTrayIcon());
   OSD osd(tray_icon.get(), &app);
 
 #ifdef HAVE_DBUS

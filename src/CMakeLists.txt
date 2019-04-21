@@ -106,9 +106,7 @@ set(SOURCES
   core/utilities.cpp
   core/scangiomodulepath.cpp
   core/iconloader.cpp
-  core/qtsystemtrayicon.cpp
   core/standarditemiconloader.cpp
-  core/systemtrayicon.cpp
   core/windows7thumbbar.cpp
   core/screensaver.cpp
   core/scopedtransaction.cpp
@@ -295,9 +293,7 @@ set(HEADERS
   core/tagreaderclient.h
   core/taskmanager.h
   core/urlhandler.h
-  core/qtsystemtrayicon.h
   core/standarditemiconloader.h
-  core/systemtrayicon.h
   core/windows7thumbbar.h
   core/mimedata.h
 
@@ -512,6 +508,11 @@ set(RESOURCES ../data/data.qrc ../data/icons.qrc)
 set(OTHER_SOURCES)
 
 option(USE_INSTALL_PREFIX "Look for data in CMAKE_INSTALL_PREFIX" ON)
+
+optional_source(NOT_APPLE
+  SOURCES core/qtsystemtrayicon.cpp
+  HEADERS core/qtsystemtrayicon.h
+)
 
 if(HAVE_GLOBALSHORTCUTS)
   optional_source(HAVE_GLOBALSHORTCUTS

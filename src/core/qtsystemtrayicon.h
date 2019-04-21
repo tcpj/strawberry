@@ -2,6 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
+ * Copyright 2019, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,60 +26,76 @@
 
 #include <stdbool.h>
 
-#include <QObject>
 #include <QSystemTrayIcon>
 #include <QString>
+#include <QIcon>
 #include <QPixmap>
 #include <QAction>
 #include <QMenu>
 #include <QtEvents>
 
-#include "systemtrayicon.h"
-
 class QEvent;
+class QMouseEvent;
 
 class Song;
 
-class QtSystemTrayIcon : public SystemTrayIcon {
+class SystemTrayIcon : public QSystemTrayIcon {
   Q_OBJECT
 
  public:
-  QtSystemTrayIcon(QObject *parent = nullptr);
-  ~QtSystemTrayIcon();
+  SystemTrayIcon(QObject *parent = nullptr);
+  ~SystemTrayIcon();
+
+  bool IsAvailable() const { return isSystemTrayAvailable(); }
+
+  bool IsVisible() const { return isVisible(); }
+  void SetVisible(bool visible) { setVisible(visible); }
 
   void SetupMenu(QAction *previous, QAction *play, QAction *stop, QAction *stop_after, QAction *next, QAction *mute, QAction *quit);
-  bool IsVisible() const;
-  void SetVisible(bool visible);
-
   void ShowPopup(const QString &summary, const QString &message, int timeout);
+
+  void UpdateIcon();
 
   void SetNowPlaying(const Song &song, const QString &image_path);
   void ClearNowPlaying();
 
+  void SetPlaying(bool enable_play_pause = false);
+  void SetPaused();
+  void SetStopped();
+
   bool MuteEnabled() { return action_mute_->isVisible(); }
   void SetMuteEnabled(bool enabled) { action_mute_->setVisible(enabled); }
-
- protected:
-  // SystemTrayIcon
-  void UpdateIcon();
-  void SetPaused();
-  void SetPlaying(bool enable_play_pause = false);
-  void SetStopped();
   void MuteButtonStateChanged(bool value);
 
-  // QObject
-  bool eventFilter(QObject *, QEvent *);
+ public slots:
+  void SetProgress(int percentage);
+
+ signals:
+  void ChangeVolume(int delta);
+  void SeekForward();
+  void SeekBackward();
+  void NextTrack();
+  void PreviousTrack();
+  void ShowHide();
+  void PlayPause();
+
+ protected:
+  QPixmap CreateIcon(const QPixmap &icon, const QPixmap &grey_icon);
 
  private slots:
   void Clicked(QSystemTrayIcon::ActivationReason);
+  bool event(QEvent *event);
 
  private:
-  QSystemTrayIcon *tray_;
   QMenu *menu_;
   QString app_name_;
   QIcon icon_;
   QPixmap normal_icon_;
   QPixmap grey_icon_;
+  QPixmap playing_icon_;
+  QPixmap paused_icon_;
+  QPixmap current_state_icon_;
+  int percentage_;
 
   QAction *action_play_pause_;
   QAction *action_stop_;

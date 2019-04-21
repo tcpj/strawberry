@@ -72,7 +72,6 @@
 #include "taskmanager.h"
 #include "song.h"
 #include "stylesheetloader.h"
-#include "systemtrayicon.h"
 #include "windows7thumbbar.h"
 #include "application.h"
 #include "database.h"
@@ -150,6 +149,8 @@
 
 #ifdef Q_OS_MACOS
 #  include "core/macsystemtrayicon.h"
+#else
+#  include "core/qtsystemtrayicon.h"
 #endif
 
 #ifdef HAVE_MOODBAR
@@ -615,16 +616,14 @@ MainWindow::MainWindow(Application *app, SystemTrayIcon *tray_icon, OSD *osd, co
   mac::SetApplicationHandler(this);
 #endif
   // Tray icon
-  if (tray_icon_) {
-    tray_icon_->SetupMenu(ui_->action_previous_track, ui_->action_play_pause, ui_->action_stop, ui_->action_stop_after_this_track, ui_->action_next_track, ui_->action_mute, ui_->action_quit);
-    connect(tray_icon_, SIGNAL(PlayPause()), app_->player(), SLOT(PlayPause()));
-    connect(tray_icon_, SIGNAL(SeekForward()), app_->player(), SLOT(SeekForward()));
-    connect(tray_icon_, SIGNAL(SeekBackward()), app_->player(), SLOT(SeekBackward()));
-    connect(tray_icon_, SIGNAL(NextTrack()), app_->player(), SLOT(Next()));
-    connect(tray_icon_, SIGNAL(PreviousTrack()), app_->player(), SLOT(Previous()));
-    connect(tray_icon_, SIGNAL(ShowHide()), SLOT(ToggleShowHide()));
-    connect(tray_icon_, SIGNAL(ChangeVolume(int)), SLOT(VolumeWheelEvent(int)));
-  }
+  tray_icon_->SetupMenu(ui_->action_previous_track, ui_->action_play_pause, ui_->action_stop, ui_->action_stop_after_this_track, ui_->action_next_track, ui_->action_mute, ui_->action_quit);
+  connect(tray_icon_, SIGNAL(PlayPause()), app_->player(), SLOT(PlayPause()));
+  connect(tray_icon_, SIGNAL(SeekForward()), app_->player(), SLOT(SeekForward()));
+  connect(tray_icon_, SIGNAL(SeekBackward()), app_->player(), SLOT(SeekBackward()));
+  connect(tray_icon_, SIGNAL(NextTrack()), app_->player(), SLOT(Next()));
+  connect(tray_icon_, SIGNAL(PreviousTrack()), app_->player(), SLOT(Previous()));
+  connect(tray_icon_, SIGNAL(ShowHide()), SLOT(ToggleShowHide()));
+  connect(tray_icon_, SIGNAL(ChangeVolume(int)), SLOT(VolumeWheelEvent(int)));
 
   // Windows 7 thumbbar buttons
   thumbbar_->SetActions(QList<QAction*>() << ui_->action_previous_track << ui_->action_play_pause << ui_->action_stop << ui_->action_next_track << nullptr); // spacer
@@ -768,7 +767,7 @@ MainWindow::MainWindow(Application *app, SystemTrayIcon *tray_icon, OSD *osd, co
   StartupBehaviour behaviour = StartupBehaviour(settings.value("startupbehaviour", Startup_Remember).toInt());
   settings.endGroup();
   bool hidden = settings_.value("hidden", false).toBool();
-  if (hidden && (!QSystemTrayIcon::isSystemTrayAvailable() || !tray_icon_ || !tray_icon_->IsVisible())) {
+  if (hidden && (!tray_icon_->IsAvailable() || !tray_icon_->IsVisible())) {
     hidden = false;
     settings_.setValue("hidden", false);
     show();
@@ -819,10 +818,10 @@ void MainWindow::ReloadSettings() {
 
 #ifndef Q_OS_MACOS
   settings.beginGroup(BehaviourSettingsPage::kSettingsGroup);
-  bool showtrayicon = settings.value("showtrayicon", QSystemTrayIcon::isSystemTrayAvailable()).toBool();
+  bool showtrayicon = settings.value("showtrayicon", tray_icon_->IsAvailable()).toBool();
   settings.endGroup();
-  if (tray_icon_) tray_icon_->SetVisible(showtrayicon);
-  if ((!showtrayicon || !QSystemTrayIcon::isSystemTrayAvailable()) && !isVisible()) show();
+  if (tray_icon_->IsAvailable()) tray_icon_->SetVisible(showtrayicon);
+  if ((!showtrayicon || !tray_icon_->IsAvailable()) && !isVisible()) show();
 #endif
 
   settings.beginGroup(BehaviourSettingsPage::kSettingsGroup);
@@ -845,11 +844,11 @@ void MainWindow::ReloadSettings() {
     ui_->volume->SetEnabled(volume_control);
     if (volume_control) {
       if (!ui_->action_mute->isVisible()) ui_->action_mute->setVisible(true);
-      if (tray_icon_ && !tray_icon_->MuteEnabled()) tray_icon_->SetMuteEnabled(true);
+      if (tray_icon_->IsAvailable() && !tray_icon_->MuteEnabled()) tray_icon_->SetMuteEnabled(true);
     }
     else {
       if (ui_->action_mute->isVisible()) ui_->action_mute->setVisible(false);
-      if (tray_icon_ && tray_icon_->MuteEnabled()) tray_icon_->SetMuteEnabled(false);
+      if (tray_icon_->IsAvailable() && tray_icon_->MuteEnabled()) tray_icon_->SetMuteEnabled(false);
     }
   }
 
@@ -911,7 +910,7 @@ void MainWindow::MediaStopped() {
   track_position_timer_->stop();
   track_slider_timer_->stop();
   ui_->track_slider->SetStopped();
-  if (tray_icon_) {
+  if (tray_icon_->IsAvailable()) {
     tray_icon_->SetProgress(0);
     tray_icon_->SetStopped();
   }
@@ -934,7 +933,7 @@ void MainWindow::MediaPaused() {
   track_position_timer_->stop();
   track_slider_timer_->stop();
 
-  if (tray_icon_) tray_icon_->SetPaused();
+  if (tray_icon_->IsAvailable()) tray_icon_->SetPaused();
 
 }
 
@@ -955,7 +954,7 @@ void MainWindow::MediaPlaying() {
   }
   ui_->action_play_pause->setEnabled(enable_play_pause);
   ui_->track_slider->SetCanSeek(can_seek);
-  if (tray_icon_) tray_icon_->SetPlaying(enable_play_pause);
+  if (tray_icon_->IsAvailable()) tray_icon_->SetPlaying(enable_play_pause);
 
   track_position_timer_->start();
   track_slider_timer_->start();
@@ -972,7 +971,7 @@ void MainWindow::MediaPlaying() {
 
 void MainWindow::VolumeChanged(int volume) {
   ui_->action_mute->setChecked(!volume);
-  if (tray_icon_) tray_icon_->MuteButtonStateChanged(!volume);
+  if (tray_icon_->IsAvailable()) tray_icon_->MuteButtonStateChanged(!volume);
 }
 
 void MainWindow::SongChanged(const Song &song) {
@@ -980,7 +979,7 @@ void MainWindow::SongChanged(const Song &song) {
   song_playing_ = song;
   song_ = song;
   setWindowTitle(song.PrettyTitleWithArtist());
-  if (tray_icon_) tray_icon_->SetProgress(0);
+  if (tray_icon_->IsAvailable()) tray_icon_->SetProgress(0);
 
 }
 
@@ -1222,7 +1221,7 @@ void MainWindow::Seeked(qlonglong microseconds) {
 
   const int position = microseconds / kUsecPerSec;
   const int length = app_->player()->GetCurrentItem()->Metadata().length_nanosec() / kNsecPerSec;
-  if (tray_icon_) tray_icon_->SetProgress(double(position) / length * 100);
+  if (tray_icon_->IsAvailable()) tray_icon_->SetProgress(double(position) / length * 100);
 
 }
 
@@ -1236,7 +1235,7 @@ void MainWindow::UpdateTrackPosition() {
   const int position = std::floor(float(app_->player()->engine()->position_nanosec()) / kNsecPerSec + 0.5);
 
   // Update the tray icon every 10 seconds
-  if (tray_icon_ && position % 10 == 0) tray_icon_->SetProgress(double(position) / length * 100);
+  if (tray_icon_->IsAvailable() && position % 10 == 0) tray_icon_->SetProgress(double(position) / length * 100);
 
   // Send Scrobble
   if (app_->scrobbler()->IsEnabled() && item->Metadata().is_metadata_good()) {
@@ -2232,7 +2231,7 @@ void MainWindow::Exit() {
     if (app_->player()->GetState() == Engine::Playing) {
       app_->player()->Stop();
       hide();
-      if (tray_icon_) tray_icon_->SetVisible(false);
+      if (tray_icon_->IsAvailable()) tray_icon_->SetVisible(false);
       return; // Don't quit the application now: wait for the fadeout finished signal
     }
   }

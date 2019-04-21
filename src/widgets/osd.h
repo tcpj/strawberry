@@ -79,6 +79,7 @@ class OSD : public QObject {
  public slots:
   void ReloadSettings();
 
+  void Playing();
   void Paused();
   void Stopped();
   void StopAfterToggle(bool stop);
