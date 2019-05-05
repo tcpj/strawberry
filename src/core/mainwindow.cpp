@@ -219,8 +219,6 @@ MainWindow::MainWindow(Application *app, SystemTrayIcon *tray_icon, OSD *osd, co
       track_slider_timer_(new QTimer(this)),
       initialised_(false),
       was_maximized_(true),
-      saved_playback_position_(0),
-      saved_playback_state_(Engine::Empty),
       playing_widget_(true),
       doubleclick_addmode_(BehaviourSettingsPage::AddBehaviour_Append),
       doubleclick_playmode_(BehaviourSettingsPage::PlayBehaviour_Never),
@@ -793,7 +791,9 @@ MainWindow::MainWindow(Application *app, SystemTrayIcon *tray_icon, OSD *osd, co
 
   CommandlineOptionsReceived(options);
 
-  if (!options.contains_play_options()) LoadPlaybackStatus();
+  if (!options.contains_play_options()) {
+    LoadPlaybackStatus();
+  }
 
   RefreshStyleSheet();
 
@@ -1026,41 +1026,38 @@ void MainWindow::SaveGeometry() {
 
 void MainWindow::SavePlaybackStatus() {
 
-  QSettings settings;
+  QSettings s;
 
-  settings.beginGroup("Player");
-  settings.setValue("playback_state", app_->player()->GetState());
+  s.beginGroup(Player::kSettingsGroup);
+  s.setValue("playback_state", app_->player()->GetState());
   if (app_->player()->GetState() == Engine::Playing || app_->player()->GetState() == Engine::Paused) {
-    settings.setValue("playback_position", app_->player()->engine()->position_nanosec() / kNsecPerSec);
+    s.setValue("playback_playlist", app_->playlist_manager()->active()->id());
+    s.setValue("playback_position", app_->player()->engine()->position_nanosec() / kNsecPerSec);
   }
   else {
-    settings.setValue("playback_position", 0);
+    s.setValue("playback_playlist", -1);
+    s.setValue("playback_position", 0);
   }
 
-  settings.endGroup();
+  s.endGroup();
 
 }
 
 void MainWindow::LoadPlaybackStatus() {
 
-  QSettings settings;
+  QSettings s;
 
-  settings.beginGroup(BehaviourSettingsPage::kSettingsGroup);
-  bool resume_playback = settings.value("resumeplayback", false).toBool();
-  settings.endGroup();
+  s.beginGroup(BehaviourSettingsPage::kSettingsGroup);
+  bool resume_playback = s.value("resumeplayback", false).toBool();
+  s.endGroup();
 
-  if (!resume_playback) return;
+  s.beginGroup(Player::kSettingsGroup);
+  Engine::State playback_state = static_cast<Engine::State> (s.value("playback_state", Engine::Empty).toInt());
+  s.endGroup();
 
-  settings.beginGroup("Player");
-  saved_playback_state_ = static_cast<Engine::State> (settings.value("playback_state", Engine::Empty).toInt());
-  saved_playback_position_ = settings.value("playback_position", 0).toDouble();
-  settings.endGroup();
-
-  if (saved_playback_state_ == Engine::Empty || saved_playback_state_ == Engine::Idle) {
-    return;
+  if (resume_playback && playback_state != Engine::Empty && playback_state != Engine::Idle) {
+    connect(app_->playlist_manager(), SIGNAL(AllPlaylistsLoaded()), SLOT(ResumePlayback()));
   }
-
-  connect(app_->playlist_manager()->active(), SIGNAL(RestoreFinished()), SLOT(ResumePlayback()));
 
 }
 
@@ -1068,14 +1065,31 @@ void MainWindow::ResumePlayback() {
 
   qLog(Debug) << "Resuming playback";
 
-  disconnect(app_->playlist_manager()->active(), SIGNAL(RestoreFinished()), this, SLOT(ResumePlayback()));
+  disconnect(app_->playlist_manager(), SIGNAL(AllPlaylistsLoaded()), this, SLOT(ResumePlayback()));
 
-  if (saved_playback_state_ == Engine::Paused) {
-    NewClosure(app_->player(), SIGNAL(Playing()), app_->player(), SLOT(PlayPause()));
+  QSettings s;
+  s.beginGroup(Player::kSettingsGroup);
+  Engine::State playback_state = static_cast<Engine::State> (s.value("playback_state", Engine::Empty).toInt());
+  int playback_playlist = s.value("playback_playlist", -1).toInt();
+  int playback_position = s.value("playback_position", 0).toInt();
+  s.endGroup();
+
+  if (playback_playlist == app_->playlist_manager()->current()->id()) {
+    // Set active to current to resume playback on correct playlist.
+    app_->playlist_manager()->SetActiveToCurrent();
+    if (playback_state == Engine::Paused) {
+      NewClosure(app_->player(), SIGNAL(Playing()), app_->player(), SLOT(PlayPause()));
+    }
+    app_->player()->Play();
+    app_->player()->SeekTo(playback_position);
   }
 
-  app_->player()->Play();
-  app_->player()->SeekTo(saved_playback_position_);
+  // Reset saved playback status so we don't resume again from the same position.
+  s.beginGroup(Player::kSettingsGroup);
+  s.setValue("playback_state", Engine::Empty);
+  s.setValue("playback_playlist", -1);
+  s.setValue("playback_position", 0);
+  s.endGroup();
 
 }
 
