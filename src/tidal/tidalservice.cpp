@@ -37,6 +37,8 @@
 #include <QJsonValue>
 #include <QMenu>
 #include <QSettings>
+#include <QMimeType>
+#include <QMimeDatabase>
 
 #include "core/application.h"
 #include "core/player.h"
@@ -995,9 +997,11 @@ void TidalService::GetStreamURL(const QUrl &url) {
   requests_stream_url_.insert(song_id, url);
 
   QList<Param> parameters;
-  parameters << Param("soundQuality", quality_);
+  parameters << Param("audioquality", quality_);
+  parameters << Param("playbackmode", "STREAM");
+  parameters << Param("assetpresentation", "FULL");
 
-  QNetworkReply *reply = CreateRequest(QString("tracks/%1/streamUrl").arg(song_id), parameters);
+  QNetworkReply *reply = CreateRequest(QString("tracks/%1/playbackinfopostpaywall").arg(song_id), parameters);
   NewClosure(reply, SIGNAL(finished()), this, SLOT(StreamURLReceived(QNetworkReply*, int, QUrl)), reply, song_id, url);
 
 }
@@ -1027,21 +1031,67 @@ void TidalService::StreamURLReceived(QNetworkReply *reply, const int song_id, co
     return;
   }
 
-  if (!json_obj.contains("url") || !json_obj.contains("codec")) {
-    error = Error("Invalid Json reply, stream missing url or codec.", json_obj);
+  if (!json_obj.contains("trackId") || !json_obj.contains("manifest")) {
+    error = Error("Invalid Json reply, stream missing trackId or manifest.", json_obj);
     emit StreamURLFinished(original_url, original_url, Song::FileType_Stream, error);
     return;
   }
 
-  QUrl new_url(json_obj["url"].toString());
-  QString codec(json_obj["codec"].toString().toLower());
-  Song::FileType filetype(Song::FiletypeByExtension(codec));
+  int track_id(json_obj["trackId"].toInt());
+  QString manifest(json_obj["manifest"].toString());
+  if (track_id != song_id) {
+    error = Error("Incorrect track ID returned.", json_obj);
+    emit StreamURLFinished(original_url, original_url, Song::FileType_Stream, error);
+    return;
+  }
+
+  QByteArray data_manifest = QByteArray::fromBase64(manifest.toUtf8());
+
+  json_obj = ExtractJsonObj(data_manifest, error);
+  if (json_obj.isEmpty()) {
+    emit StreamURLFinished(original_url, original_url, Song::FileType_Stream, error);
+    return;
+  }
+
+  if (!json_obj.contains("mimeType") || !json_obj.contains("codecs") || !json_obj.contains("urls")) {
+    error = Error("Invalid Json reply, stream missing mimeType, codecs or urls.", json_obj);
+    emit StreamURLFinished(original_url, original_url, Song::FileType_Stream, error);
+    return;
+  }
+
+  QJsonValue json_urls = json_obj["urls"];
+  if (!json_urls.isArray()) {
+    error = Error("Invalid Json reply, urls is not an array.", json_urls);
+    emit StreamURLFinished(original_url, original_url, Song::FileType_Stream, error);
+    return;
+  }
+
+  QJsonArray json_array_urls = json_urls.toArray();
+  QList<QUrl> url_list;
+  for (const QJsonValue &value : json_array_urls) {
+    url_list << QUrl(value.toString());
+  }
+
+  QString mimetype = json_obj["mimeType"].toString();
+  QMimeDatabase mimedb;
+  Song::FileType filetype(Song::FileType_Unknown);
+  for (QString suffix : mimedb.mimeTypeForName(mimetype.toUtf8()).suffixes()) {
+    filetype = Song::FiletypeByExtension(suffix);
+    if (filetype != Song::FileType_Unknown) break;
+  }
+
   if (filetype == Song::FileType_Unknown) {
-    qLog(Debug) << "Tidal: Unknown codec" << codec;
+    qLog(Debug) << "Tidal: Unknown mimetype" << mimetype;
     filetype = Song::FileType_Stream;
   }
 
-  emit StreamURLFinished(original_url, new_url, filetype);
+  if (url_list.isEmpty()) {
+    error = Error("Invalid Json reply, urls is empty.", json_obj);
+    emit StreamURLFinished(original_url, original_url, filetype);
+  }
+  else {
+    emit StreamURLFinished(original_url, url_list.first(), filetype);
+  }
 
 }
 
