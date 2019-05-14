@@ -118,14 +118,15 @@ void TidalService::ReloadSettings() {
   QByteArray password = s.value("password").toByteArray();
   if (password.isEmpty()) password_.clear();
   else password_ = QString::fromUtf8(QByteArray::fromBase64(password));
-  quality_ = s.value("quality").toString();
+  token_ = s.value("token").toString();
+  if (token_.isEmpty()) token_ = QString::fromUtf8(QByteArray::fromBase64(kApiTokenB64));
+  quality_ = s.value("quality", "LOSSLESS").toString();
   search_delay_ = s.value("searchdelay", 1500).toInt();
   artistssearchlimit_ = s.value("artistssearchlimit", 5).toInt();
   albumssearchlimit_ = s.value("albumssearchlimit", 100).toInt();
   songssearchlimit_ = s.value("songssearchlimit", 100).toInt();
   fetchalbums_ = s.value("fetchalbums", false).toBool();
   coversize_ = s.value("coversize", "320x320").toString();
-  streamurl_ = s.value("streamurl", "http").toString();
   s.endGroup();
 
 }
@@ -138,16 +139,15 @@ void TidalService::LoadSessionID() {
   session_id_ = s.value("session_id").toString();
   user_id_ = s.value("user_id").toInt();
   country_code_ = s.value("country_code").toString();
-  clientuniquekey_ = Utilities::GetRandomStringWithChars(12).toLower();
   s.endGroup();
 
 }
 
 void TidalService::SendLogin() {
-  SendLogin(username_, password_);
+  SendLogin(username_, password_, token_);
 }
 
-void TidalService::SendLogin(const QString &username, const QString &password) {
+void TidalService::SendLogin(const QString &username, const QString &password, const QString &token) {
 
   if (search_id_ != 0) emit UpdateStatus(tr("Authenticating..."));
 
@@ -163,7 +163,7 @@ void TidalService::SendLogin(const QString &username, const QString &password) {
   typedef QPair<QByteArray, QByteArray> EncodedArg;
   typedef QList<EncodedArg> EncodedArgList;
 
-  ArgList args = ArgList() << Arg("token", QByteArray::fromBase64(kApiTokenB64))
+  ArgList args = ArgList() << Arg("token", token_)
                            << Arg("username", username)
                            << Arg("password", password)
                            << Arg("clientVersion", "2.2.1--7");
@@ -180,7 +180,7 @@ void TidalService::SendLogin(const QString &username, const QString &password) {
   QNetworkRequest req(url);
 
   req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
-  req.setRawHeader("X-Tidal-Token", QByteArray::fromBase64(kApiTokenB64));
+  req.setRawHeader("X-Tidal-Token", token_.toUtf8());
 
   QNetworkReply *reply = network_->post(req, url_query.toString(QUrl::FullyEncoded).toUtf8());
   NewClosure(reply, SIGNAL(finished()), this, SLOT(HandleAuthReply(QNetworkReply*)), reply);
@@ -255,7 +255,6 @@ void TidalService::HandleAuthReply(QNetworkReply *reply) {
   country_code_ = json_obj["countryCode"].toString();
   session_id_ = json_obj["sessionId"].toString();
   user_id_ = json_obj["userId"].toInt();
-  clientuniquekey_ = Utilities::GetRandomStringWithChars(12).toLower();
 
   QSettings s;
   s.beginGroup(TidalSettingsPage::kSettingsGroup);
@@ -322,7 +321,7 @@ QNetworkReply *TidalService::CreateRequest(const QString &ressource_name, const 
   QUrl url(kApiUrl + QString("/") + ressource_name);
   url.setQuery(url_query);
   QNetworkRequest req(url);
-  req.setRawHeader("Origin", "http://listen.tidal.com");
+  req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
   req.setRawHeader("X-Tidal-SessionId", session_id_.toUtf8());
   QNetworkReply *reply = network_->get(req);
 
@@ -943,9 +942,27 @@ Song TidalService::ParseSong(const int album_id_requested, const QJsonValue &val
     qLog(Error) << "Tidal: Song" << artist << album << title << "is not streamReady.";
   }
 
-  //qLog(Debug) << "id" << id << "track" << track << "disc" << disc << "title" << title << "album" << album << "artist" << artist << cover << allow_streaming << url;
+  QUrl url;
+  url.setScheme(url_handler_->scheme());
+  url.setPath(QString::number(song_id));
+
+  QVariant q_duration = json_duration.toVariant();
+  quint64 duration = 0;
+  if (q_duration.isValid() && (q_duration.type() == QVariant::Int || q_duration.type() == QVariant::Double)) {
+    duration = q_duration.toInt() * kNsecPerSec;
+  }
+  else {
+    qLog(Error) << "Tidal: Invalid duration for song.";
+    qLog(Debug) << json_duration;
+    return Song();
+  }
+
+  cover = cover.replace("-", "/");
+  QUrl cover_url (QString("%1/images/%2/%3.jpg").arg(kResourcesUrl).arg(cover).arg(coversize_));
 
   title.remove(Song::kTitleRemoveMisc);
+
+  //qLog(Debug) << "id" << id << "track" << track << "disc" << disc << "title" << title << "album" << album << "artist" << artist << cover << allow_streaming << url;
 
   Song song;
   song.set_source(Song::Source_Tidal);
@@ -957,23 +974,10 @@ Song TidalService::ParseSong(const int album_id_requested, const QJsonValue &val
   song.set_title(title);
   song.set_track(track);
   song.set_disc(disc);
-  song.set_comment(copyright);
-
-  QVariant q_duration = json_duration.toVariant();
-  if (q_duration.isValid()) {
-    quint64 duration = q_duration.toULongLong() * kNsecPerSec;
-    song.set_length_nanosec(duration);
-  }
-
-  cover = cover.replace("-", "/");
-  QUrl cover_url (QString("%1/images/%2/%3.jpg").arg(kResourcesUrl).arg(cover).arg(coversize_));
-  song.set_art_automatic(cover_url.toEncoded());
-
-  QUrl url;
-  url.setScheme(url_handler_->scheme());
-  url.setPath(QString::number(song_id));
   song.set_url(url);
-
+  song.set_length_nanosec(duration);
+  song.set_art_automatic(cover_url.toEncoded());
+  song.set_comment(copyright);
   song.set_valid(true);
 
   return song;
@@ -1036,8 +1040,6 @@ void TidalService::StreamURLReceived(QNetworkReply *reply, const int song_id, co
     qLog(Debug) << "Tidal: Unknown codec" << codec;
     filetype = Song::FileType_Stream;
   }
-
-  if (new_url.scheme() != streamurl_) new_url.setScheme(streamurl_);
 
   emit StreamURLFinished(original_url, new_url, filetype);
 
