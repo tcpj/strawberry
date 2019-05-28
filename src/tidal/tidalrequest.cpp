@@ -132,6 +132,8 @@ void TidalRequest::GetArtists() {
   artist_query_ = true;
 
   ParamList parameters;
+  parameters << Param("offset", "0");
+  parameters << Param("limit", QString::number(service_->artistssearchlimit()));
   QNetworkReply *reply = CreateRequest(QString("users/%1/favorites/artists").arg(service_->user_id()), parameters);
   NewClosure(reply, SIGNAL(finished()), this, SLOT(ArtistsReceived(QNetworkReply*)), reply);
 
@@ -149,6 +151,8 @@ void TidalRequest::GetAlbums() {
   }
 
   ParamList parameters;
+  parameters << Param("offset", "0");
+  parameters << Param("limit", QString::number(service_->albumssearchlimit()));
   QNetworkReply *reply = CreateRequest(QString("users/%1/favorites/albums").arg(service_->user_id()), parameters);
   NewClosure(reply, SIGNAL(finished()), this, SLOT(AlbumsReceived(QNetworkReply*, int, int)), reply, 0, 0);
 
@@ -166,6 +170,8 @@ void TidalRequest::GetSongs() {
   }
 
   ParamList parameters;
+  parameters << Param("offset", "0");
+  parameters << Param("limit", QString::number(service_->songssearchlimit()));
   QNetworkReply *reply = CreateRequest(QString("users/%1/favorites/tracks").arg(service_->user_id()), parameters);
   NewClosure(reply, SIGNAL(finished()), this, SLOT(SongsReceived(QNetworkReply*, int)), reply, 0);
 
